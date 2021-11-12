@@ -84,7 +84,7 @@ class CTCDecoder(ABC):
             pred.positions.append(PredictionPosition(chars=[PredictionCharacter(label=l, char=c, probability=1.0)]))
         return pred
 
-    def find_alternatives(self, probabilities, sentence, threshold) -> Prediction:
+    def find_alternatives(self, probabilities, sentence, threshold, blanks, blank_index) -> Prediction:
         """
         Find alternatives to the decoded sentence in the logits.
         E.g. if a 'c' is decoded in the range 2 to 4, this algorithm will add all characters in the interval [2, 4] to
@@ -112,23 +112,27 @@ class CTCDecoder(ABC):
         pred.is_voted_result = False
         pred.logits = probabilities
         pred.avg_char_probability = 0
-        for c, start, end in sentence:
+        for idx, char in enumerate(sentence):
+            c, start, end = char
             p = probabilities[start:end]
             p = np.max(p, axis=0)
 
             pos = PredictionPosition(local_start=start, local_end=end - 1)
             pred.positions.append(pos)
 
-            for label in reversed(sorted(range(len(p)), key=lambda v: p[v])):
-                if p[label] < threshold and len(pos.chars) > 0:
-                    break
-                else:
-                    pos.chars.append(
-                        PredictionCharacter(
-                            label=label,
-                            probability=p[label],
+            if idx in blanks:
+                pos.chars.append(PredictionCharacter(label=blank_index, char="", probability=blanks[idx]))
+            else:
+                for label in reversed(sorted(range(len(p)), key=lambda v: p[v])):
+                    if p[label] < threshold and len(pos.chars) > 0:
+                        break
+                    else:
+                        pos.chars.append(
+                            PredictionCharacter(
+                                label=label,
+                                probability=p[label],
+                            )
                         )
-                    )
 
             if len(pos.chars) > 0:
                 pred.avg_char_probability += pos.chars[0].probability
