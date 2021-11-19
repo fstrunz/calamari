@@ -14,7 +14,7 @@ from tfaip.data.pipeline.definitions import (
 from tqdm import tqdm
 from lxml import etree
 import cv2 as cv
-from typing import List, Generator, Optional, Iterable, Dict, Any, Tuple
+from typing import List, Generator, Optional, Iterable, Dict, Any, Tuple, Union
 from enum import IntEnum
 from calamari_ocr.ocr.dataset.datareader.base import (
     CalamariDataGenerator,
@@ -23,7 +23,7 @@ from calamari_ocr.ocr.dataset.datareader.base import (
     SampleMeta,
 )
 from calamari_ocr.utils import split_all_ext, filename, glob_all
-from calamari_ocr.ocr.predict.params import Prediction
+from calamari_ocr.ocr.predict.params import Prediction, PredictionPosition, PredictionCharacter
 
 import logging
 
@@ -204,6 +204,10 @@ class PageXML(CalamariDataGeneratorParams):
             help="When output_glyphs is True, determines the maximum amount of glyph alternatives to output."
         ),
     )
+    output_spaces: bool = field(
+        default=True,
+        metadata=pai_meta(help="Output a Word containing a single Glyph representing a space between every Word."),
+    )
 
     def __len__(self):
         return len(self.images)
@@ -241,6 +245,11 @@ class PageXML(CalamariDataGeneratorParams):
                     logger.warning(
                         f"Filenames are not matching, got base names \n" f"  image: {img_bn}\n" f"  xml:   {xml_bn}\n."
                     )
+
+
+# list of a group of glyphs (a word) or a whitespace glyph
+# this is the type of the return value of _words_from_prediction
+PredictionWords = List[Union[List[PredictionPosition], PredictionCharacter]]
 
 
 class PageXMLReader(CalamariDataGenerator[PageXML]):
@@ -398,7 +407,7 @@ class PageXMLReader(CalamariDataGenerator[PageXML]):
         u_xml.text = sentence
 
         if self.params.output_glyphs:
-            words = self._words_from_prediction(prediction)
+            words: PredictionWords = self._words_from_prediction(prediction)
             self._store_words(words, line, self._parse_coords(sample["coords"]), ns)
 
         if self.params.output_confidences:
@@ -464,8 +473,7 @@ class PageXMLReader(CalamariDataGenerator[PageXML]):
     def _coords_for_rectangle(x, y, width, height):
         return f"{int(x)},{int(y)} {int(x+width)},{int(y)} {int(x+width)},{int(y+height)} {int(x)},{int(y+height)}"
 
-    def _store_glyph(self, glyph, word_id, word_xml, line_x, line_y, line_height, glyph_counter):
-        glyph_id = "{}g{}".format(word_id, str(glyph_counter))
+    def _store_glyph(self, glyph: PredictionPosition, word_xml, line_x, line_y, line_height, glyph_id):
         glyph_xml = etree.SubElement(word_xml, "Glyph", attrib={"id": glyph_id})
         coords_xml = etree.SubElement(glyph_xml, "Coords")
 
@@ -485,7 +493,52 @@ class PageXMLReader(CalamariDataGenerator[PageXML]):
             u_xml = etree.SubElement(textequiv_xml, "Unicode")
             u_xml.text = char
 
-    def _store_words(self, words, line_xml, line_coords, ns) -> float:
+    def _store_word(
+        self,
+        word_id: str,
+        word: List[PredictionPosition],
+        line_xml: etree.ElementBase,
+        insert_index: int,
+        line_x: int,
+        line_y: int,
+        line_height: int,
+    ):
+        if not word:
+            # ignore empty words
+            return
+
+        word_xml = etree.SubElement(line_xml, "Word", attrib={"id": word_id})
+        coords_xml = etree.SubElement(word_xml, "Coords")
+
+        word_text = ""
+        word_confidence = 1
+        glyph_counter = 0
+
+        for glyph in word:
+            glyph_id = "{}g{}".format(word_id, str(glyph_counter))
+
+            word_text += glyph.chars[0].char
+            word_confidence *= glyph.chars[0].probability
+
+            self._store_glyph(glyph, word_xml, line_x, line_y, line_height, glyph_id)
+            glyph_counter += 1
+
+        textequiv_xml = etree.SubElement(word_xml, "TextEquiv")
+        textequiv_xml.set("index", str(self.params.text_index))
+
+        if self.params.output_confidences:
+            textequiv_xml.set("conf", str(word_confidence))
+
+        u_xml = etree.SubElement(textequiv_xml, "Unicode")
+        u_xml.text = word_text
+
+        word_x, word_y = word[0].global_start + line_x, line_y
+        word_width, word_height = word[-1].global_end - word[0].global_start, line_height
+        coords_xml.set("points", self._coords_for_rectangle(word_x, word_y, word_width, word_height))
+
+        line_xml.insert(insert_index, word_xml)
+
+    def _store_words(self, words: PredictionWords, line_xml, line_coords, ns):
         # page schema requires that word tags are directly after coords (and baseline, if present)
         coords_xml = line_xml.find("./ns:Coords", namespaces=ns)
         baseline_xml = line_xml.find("./ns:Baseline", namespaces=ns)
@@ -503,53 +556,28 @@ class PageXMLReader(CalamariDataGenerator[PageXML]):
         line_x, line_y, _, line_height = self._bounding_rect_from_points(line_coords)
 
         for word in words:
-            if not word:
-                # ignore empty words
-                continue
+            if isinstance(word, list):  # List[PredictionPosition]
+                word_id = f"w{self._next_word_id}"
+                self._store_word(word_id, word, line_xml, insert_index, line_x, line_y, line_height)
+            else:  # PredictionPosition
+                word_id = f"ws{self._next_word_id}"
+                self._store_word(word_id, [word], line_xml, insert_index, line_x, line_y, line_height)
 
-            word_id = "w" + str(self._next_word_id)
             self._next_word_id += 1
-            word_xml = etree.SubElement(line_xml, "Word", attrib={"id": word_id})
-            coords_xml = etree.SubElement(word_xml, "Coords")
-
-            word_text = ""
-            word_confidence = 1
-            glyph_counter = 0
-
-            for glyph in word:
-                word_text += glyph.chars[0].char
-                word_confidence *= glyph.chars[0].probability
-
-                self._store_glyph(glyph, word_id, word_xml, line_x, line_y, line_height, glyph_counter)
-                glyph_counter += 1
-
-            textequiv_xml = etree.SubElement(word_xml, "TextEquiv")
-            textequiv_xml.set("index", str(self.params.text_index))
-
-            if self.params.output_confidences:
-                textequiv_xml.set("conf", str(word_confidence))
-
-            u_xml = etree.SubElement(textequiv_xml, "Unicode")
-            u_xml.text = word_text
-
-            word_x, word_y = word[0].global_start + line_x, line_y
-            word_width, word_height = word[-1].global_end - word[0].global_start, line_height
-            coords_xml.set("points", self._coords_for_rectangle(word_x, word_y, word_width, word_height))
-
-            line_xml.insert(insert_index, word_xml)
             insert_index += 1
 
-    # groups prediction positions by word, removing spaces
+    # groups prediction positions by word, including spaces
     @staticmethod
-    def _words_from_prediction(prediction: Prediction) -> list:
+    def _words_from_prediction(prediction: Prediction) -> PredictionWords:
         words = []
         current_word = []
 
         for pos in prediction.positions:
             char = pos.chars[0].char
-            if char == " ":
+            if str.isspace(char):
                 words.append(current_word)
                 current_word = []
+                words.append(pos)
                 continue
             current_word.append(pos)
 
