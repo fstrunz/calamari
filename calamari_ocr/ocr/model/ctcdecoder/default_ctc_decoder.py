@@ -3,7 +3,7 @@ import numpy as np
 from calamari_ocr.ocr.model.ctcdecoder.ctc_decoder import CTCDecoder
 from calamari_ocr.ocr.predict.params import Prediction
 
-from typing import Optional, Dict
+from typing import Optional
 
 
 class DefaultCTCDecoder(CTCDecoder):
@@ -16,33 +16,18 @@ class DefaultCTCDecoder(CTCDecoder):
         last_char: Optional[int] = None
         chars = np.argmax(probabilities, axis=1)
         sentence = []
-        blanks: Dict[int, float] = {}
 
         for idx, c in enumerate(chars):
             if c != last_char:
-                if sentence and c == self.blank:
-                    _, start, end = sentence[-1]
-                    prob = np.max(probabilities[start:end], axis=0)[self.blank]
-                    blanks[start] = prob
                 sentence.append((c, idx, idx + 1))
             else:
-                # duplicate character, remove it
                 _, start, end = sentence[-1]
-                prob = np.max(probabilities[start:end], axis=0)[self.blank]
-
-                if last_char == self.blank:
-                    if idx - 1 in blanks:
-                        prob = max(prob, blanks[idx - 1])
-                        del blanks[idx - 1]
-
-                    blanks[idx] = prob
-
                 del sentence[-1]
                 sentence.append((c, start, idx + 1))
 
             last_char = c
 
-        return self.find_alternatives(probabilities, sentence, self.threshold, blanks, self.blank)
+        return self.find_alternatives(probabilities, sentence, self.threshold)
 
     def prob_of_sentence(self, probabilities):
         # do a forward pass and compute the full sentence probability
