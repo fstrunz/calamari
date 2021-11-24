@@ -18,10 +18,11 @@ class DefaultCTCDecoder(CTCDecoder):
         sentence = []
 
         for idx, c in enumerate(chars):
-            if c != last_char:
+            if c != last_char or c == self.blank:
+                # blanks will be contracted into one later on
                 sentence.append((c, idx, idx + 1))
             else:
-                _, start, end = sentence[-1]
+                _, start, _ = sentence[-1]
                 del sentence[-1]
                 sentence.append((c, start, idx + 1))
 

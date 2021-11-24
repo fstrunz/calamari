@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import field, dataclass
-from typing import List
+from typing import Dict, List
 
 import numpy as np
 from paiargparse import pai_dataclass
@@ -84,6 +84,43 @@ class CTCDecoder(ABC):
             pred.positions.append(PredictionPosition(chars=[PredictionCharacter(label=l, char=c, probability=1.0)]))
         return pred
 
+    @staticmethod
+    def __merge_chars(a: PredictionCharacter, b: PredictionCharacter) -> PredictionCharacter:
+        return PredictionCharacter(label=b.label, probability=max(a.probability, b.probability))
+
+    @staticmethod
+    def __merge_positions(a: PredictionPosition, b: PredictionPosition) -> PredictionPosition:
+        merged_chars: List[PredictionCharacter] = []
+        # stores the inserted labels and the index they are stored at in merged_chars
+        inserted_labels: Dict[int, int] = {}
+
+        for a_char in merged_chars:
+            merged_chars.append(a_char)
+            inserted_labels[a_char.label] = len(merged_chars) - 1
+
+        for b_char in b.chars:
+            if b_char.label in inserted_labels:
+                # this is a duplicate character, ignore it but use its probability if it is higher
+                existing_index = inserted_labels[b_char.label]
+                if merged_chars[existing_index].probability < b_char.probability:
+                    merged_chars[existing_index].probability = b_char.probability
+            else:
+                # this char has not been inserted before
+                merged_chars.append(b_char)
+                inserted_labels[b_char.label] = len(merged_chars) - 1
+
+        return PredictionPosition(
+            chars=merged_chars,
+            local_start=min(a.local_start, b.local_start),
+            local_end=max(a.local_end, b.local_end),
+            global_start=min(a.global_start, b.global_start),
+            global_end=max(a.global_end, b.global_end),
+        )
+
+    @staticmethod
+    def __contract_blanks(positions: List[PredictionPosition], blank_index: int) -> List[PredictionPosition]:
+        pass
+
     def find_alternatives(self, probabilities, sentence, threshold) -> Prediction:
         """
         Find alternatives to the decoded sentence in the logits.
@@ -132,6 +169,8 @@ class CTCDecoder(ABC):
 
             if len(pos.chars) > 0:
                 pred.avg_char_probability += pos.chars[0].probability
+
+        self._contract_blanks(pred)
 
         pred.avg_char_probability /= len(pred.positions) if len(pred.positions) > 0 else 1
         return pred
