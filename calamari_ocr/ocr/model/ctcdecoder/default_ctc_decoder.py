@@ -28,7 +28,7 @@ class DefaultCTCDecoder(CTCDecoder):
 
             last_char = c
 
-        return self.find_alternatives(probabilities, sentence, self.threshold)
+        return self.find_alternatives(probabilities, sentence, self.threshold, self.blank)
 
     def prob_of_sentence(self, probabilities):
         # do a forward pass and compute the full sentence probability

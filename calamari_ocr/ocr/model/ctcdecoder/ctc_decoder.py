@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import field, dataclass
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
 import numpy as np
 from paiargparse import pai_dataclass
@@ -85,11 +85,7 @@ class CTCDecoder(ABC):
         return pred
 
     @staticmethod
-    def __merge_chars(a: PredictionCharacter, b: PredictionCharacter) -> PredictionCharacter:
-        return PredictionCharacter(label=b.label, probability=max(a.probability, b.probability))
-
-    @staticmethod
-    def __merge_positions(positions: List[PredictionCharacter]) -> PredictionPosition:
+    def __merge_positions(positions: Iterable[PredictionCharacter]) -> PredictionPosition:
         merged_chars: List[PredictionCharacter] = []
         # stores the inserted labels and the index they are stored at in merged_chars
         inserted_labels: Dict[int, int] = {}
@@ -115,10 +111,31 @@ class CTCDecoder(ABC):
         )
 
     @staticmethod
-    def __contract_blanks(positions: List[PredictionPosition], blank_index: int) -> List[PredictionPosition]:
-        pass
+    def __contract_blank_run(positions: List[PredictionPosition], blank_index: int, j: int):
+        start_index = j
 
-    def find_alternatives(self, probabilities, sentence, threshold) -> Prediction:
+        while j < len(positions) and positions[j].chars[0].label == blank_index:
+            end_index = j
+            j += 1
+
+        new_blank = CTCDecoder.__merge_positions(positions[start_index : end_index + 1])
+
+        del positions[start_index : end_index + 1]
+        positions.insert(start_index, new_blank)
+
+    @staticmethod
+    def __contract_blanks(positions: List[PredictionPosition], blank_index: int):
+        i = 0
+
+        while i < len(positions):
+            char = positions[i].chars[0]
+
+            if char.label == blank_index:
+                CTCDecoder.__contract_blank_run(positions, blank_index, i)
+
+            i += 1
+
+    def find_alternatives(self, probabilities, sentence, threshold, blank_index=0) -> Prediction:
         """
         Find alternatives to the decoded sentence in the logits.
         E.g. if a 'c' is decoded in the range 2 to 4, this algorithm will add all characters in the interval [2, 4] to
@@ -167,7 +184,7 @@ class CTCDecoder(ABC):
             if len(pos.chars) > 0:
                 pred.avg_char_probability += pos.chars[0].probability
 
-        self._contract_blanks(pred)
+        self.__contract_blanks(pred.positions, blank_index)
 
         pred.avg_char_probability /= len(pred.positions) if len(pred.positions) > 0 else 1
         return pred
