@@ -14,6 +14,7 @@ class PredictionCharacter:
     char: str = ""
     label: int = 0
     probability: float = 0
+    logit: float = 0
 
     def __post_init__(self):
         self.probability = float(self.probability)

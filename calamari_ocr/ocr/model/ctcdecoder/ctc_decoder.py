@@ -131,6 +131,7 @@ class CTCDecoder(ABC):
                         PredictionCharacter(
                             label=label,
                             probability=p[label],
+                            logit=l[label]
                         )
                     )
 
