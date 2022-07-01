@@ -24,6 +24,7 @@ class PredictionCharacter:
 @dataclass
 class PredictionPosition:
     chars: List[PredictionCharacter] = field(default_factory=list)
+    logits: List[float] = field(default_factory=list)
     local_start: int = 0
     local_end: int = 0
     global_start: int = 0

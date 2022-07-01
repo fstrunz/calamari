@@ -46,7 +46,11 @@ class CTCDecoderProcessor(MappingDataProcessor[CTCDecoderProcessorParams]):
         if sample.outputs:
 
             def decode(suffix):
-                outputs = self.ctc_decoder.decode(sample.outputs["softmax" + suffix].astype(float))
+                print(sample.outputs)
+                outputs = self.ctc_decoder.decode(
+                    sample.outputs["softmax" + suffix].astype(float),
+                    sample.outputs["logits" + suffix].astype(float)
+                )
                 outputs.labels = list(map(int, outputs.labels))
                 outputs.sentence = "".join(self.data_params.codec.decode(outputs.labels))
                 return outputs

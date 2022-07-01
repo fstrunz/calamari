@@ -11,7 +11,7 @@ class TokenPassingCTCDecoder(CTCDecoder):
     def __init__(self, params, codec):
         super().__init__(params, codec)
 
-    def decode(self, probabilities):
+    def decode(self, probabilities, logits):
         r = ctcTokenPassing(
             probabilities,
             self.codec.charset,

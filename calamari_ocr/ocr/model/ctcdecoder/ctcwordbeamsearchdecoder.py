@@ -13,7 +13,7 @@ class WordBeamSearchCTCDecoder(CTCDecoder):
         word_chars = [c for c in word_chars if len(c) > 0]
         self.language_model = LanguageModel(" ".join(params.dictionary), "".join(codec.charset), "".join(word_chars))
 
-    def decode(self, probabilities):
+    def decode(self, probabilities, logits):
         if self.params.blank_index == 0:
             probabilities = np.roll(probabilities, -1, axis=1)
         r = wordBeamSearch(

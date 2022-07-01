@@ -10,7 +10,7 @@ class DefaultCTCDecoder(CTCDecoder):
         self.blank = params.blank_index
         self.threshold = params.min_p_threshold if params.min_p_threshold > 0 else 0.0001
 
-    def decode(self, probabilities) -> Prediction:
+    def decode(self, probabilities, logits) -> Prediction:
         last_char = self.blank
         chars = np.argmax(probabilities, axis=1)
         sentence = []
@@ -25,7 +25,7 @@ class DefaultCTCDecoder(CTCDecoder):
 
             last_char = c
 
-        return self.find_alternatives(probabilities, sentence, self.threshold)
+        return self.find_alternatives(probabilities, logits, sentence, self.threshold)
 
     def prob_of_sentence(self, probabilities):
         # do a forward pass and compute the full sentence probability

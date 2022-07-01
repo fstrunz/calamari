@@ -58,7 +58,7 @@ class CTCDecoder(ABC):
         self.codec = codec
 
     @abstractmethod
-    def decode(self, probabilities):
+    def decode(self, probabilities, logits):
         """
         Decoding algorithm of the individual CTCDecoder. This abstract function is reimplemented
         by the DefaultCTCDecoder and the FuzzyCTCDecoder.
@@ -84,7 +84,7 @@ class CTCDecoder(ABC):
             pred.positions.append(PredictionPosition(chars=[PredictionCharacter(label=l, char=c, probability=1.0)]))
         return pred
 
-    def find_alternatives(self, probabilities, sentence, threshold) -> Prediction:
+    def find_alternatives(self, probabilities, logits, sentence, threshold) -> Prediction:
         """
         Find alternatives to the decoded sentence in the logits.
         E.g. if a 'c' is decoded in the range 2 to 4, this algorithm will add all characters in the interval [2, 4] to
@@ -96,6 +96,8 @@ class CTCDecoder(ABC):
         probabilities : array_like
             Prediction of the neural net to decode or shape (length x character probability).
             The blank index must be 0.
+        logits : array_like
+            The same as probabilities, but prior to softmax layer.
         sentence : list of tuple (character index, start pos, end pos)
             The decoded sentence (depends on the CTCDecoder).
             The position refer to the character position in the logits.
@@ -111,13 +113,14 @@ class CTCDecoder(ABC):
         pred.labels[:] = [c for c, _, _ in sentence]
         pred.is_voted_result = False
         pred.logits = probabilities
+        pred.real_logits = logits
         pred.avg_char_probability = 0
         for c, start, end in sentence:
             p = probabilities[start:end]
-            p = np.max(p, axis=0)
-
-            pos = PredictionPosition(local_start=start, local_end=end - 1)
+            pos = PredictionPosition(local_start=start, local_end=end - 1, logits=p)
             pred.positions.append(pos)
+
+            p = np.max(p, axis=0)
 
             for label in reversed(sorted(range(len(p)), key=lambda v: p[v])):
                 if p[label] < threshold and len(pos.chars) > 0:
