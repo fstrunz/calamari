@@ -117,10 +117,11 @@ class CTCDecoder(ABC):
         pred.avg_char_probability = 0
         for c, start, end in sentence:
             p = probabilities[start:end]
-            pos = PredictionPosition(local_start=start, local_end=end - 1, logits=p)
-            pred.positions.append(pos)
-
             p = np.max(p, axis=0)
+
+            l = logits[start:end][0]
+            pos = PredictionPosition(local_start=start, local_end=end - 1, logits=l)
+            pred.positions.append(pos)
 
             for label in reversed(sorted(range(len(p)), key=lambda v: p[v])):
                 if p[label] < threshold and len(pos.chars) > 0:
