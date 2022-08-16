@@ -16,6 +16,8 @@ from calamari_ocr.ocr.dataset.imageprocessors.augmentation import (
     AugmentationProcessorParams,
 )
 from calamari_ocr.ocr.model.params import ModelParams
+from calamari_ocr.ocr.predict.params import PredictorParams
+from calamari_ocr.ocr.predict.predictor import Predictor
 from calamari_ocr.ocr.training.params import TrainerParams
 from calamari_ocr.ocr.training.pipeline_params import CalamariTrainOnlyPipelineParams
 from calamari_ocr.ocr.training.warmstart import WarmStarterWithCodecAdaption
@@ -238,9 +240,20 @@ class Trainer(AIPTrainer):
                         self._callbacks[i] = self.create_train_params_logger_callback(
                             store_params=True, store_weights=False
                         )
+
             logger_callback = next(c for c in self._callbacks if isinstance(c, LoggerCallback))
             super().fit()
             last_logs = logger_callback.last_logs
+
+        logger.info("Calibrating temperature scale")
+
+        # train temperature scale
+        best_ckpt_dir = os.path.join(self.params.output_dir, f"{self._params.best_model_prefix}.ckpt")
+        predictor = Predictor.from_checkpoint(PredictorParams(), best_ckpt_dir)
+
+        for sample in predictor.predict_pipeline(val_pipeline.to_mode(PipelineMode.PREDICTION)):
+            inputs, pred, meta = sample.inputs, sample.outputs, sample.meta
+            print(pred)
 
         logger.info("Training finished")
         return last_logs
